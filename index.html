@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>发财就手 - 排列五前四位分析</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:linear-gradient(180deg,#7f1d1d,#450a0a);min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fef3c7;-webkit-font-smoothing:antialiased;padding-bottom:20px}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px}
+
+.card{background:linear-gradient(135deg,#6b1010,#4a0808);border:1px solid rgba(234,179,8,0.2);border-radius:6px;overflow:hidden}
+.card-head{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:rgba(234,179,8,0.1);border-bottom:1px solid rgba(234,179,8,0.15)}
+.card-head span{font-size:12px;color:#eab308;font-weight:bold;letter-spacing:1px}
+.copy-btn{font-size:10px;color:#eab308;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:3px;padding:1px 6px;cursor:pointer}
+.copy-btn:active{background:rgba(234,179,8,0.3)}
+
+.card-body{padding:6px 8px;font-size:11px;line-height:1.7;font-family:monospace}
+
+.divider{color:rgba(234,179,8,0.3);font-size:10px;letter-spacing:0}
+
+.hist-line{color:#fef3c7;font-size:11px}
+.hist-line .period{color:#fbbf24}
+.hist-line .hit-tag{color:#4ade80;font-weight:bold}
+.hist-line .miss-tag{color:#9ca3af}
+
+.draw-line{color:#9ca3af;font-size:11px}
+
+.current-label{color:#eab308;font-size:11px;font-weight:bold;margin-top:2px}
+
+.level-row{color:#fef3c7;font-size:11px;letter-spacing:1px}
+.level-row .suffix{color:#fbbf24;opacity:0.7;font-size:10px}
+
+.cur-draw{color:#9ca3af;font-size:11px;margin-top:1px}
+
+.footer{text-align:center;padding:12px 0 8px;color:#eab308;opacity:0.6;font-size:11px}
+.footer .star{letter-spacing:2px}
+.page-title{text-align:center;padding:10px 0 4px;font-size:18px;color:#eab308;font-weight:bold;letter-spacing:3px;text-shadow:0 2px 8px rgba(234,179,8,0.3)}
+</style>
+</head>
+<body>
+
+<div class="page-title">★发财就手 应有尽有★</div>
+
+<div class="grid" id="cards"></div>
+
+<div class="footer">
+  <div class="star">★发财就手 应有尽有★</div>
+  <div class="star" style="margin-top:2px">★ ★ ★ 感谢支持★ ★★</div>
+</div>
+
+<script>
+const POS_CONFIG = [
+  { key: 'head', label: '靓头', suffix: '头' },
+  { key: 'hundred', label: '靓百', suffix: '百' },
+  { key: 'ten', label: '靓十', suffix: '十' },
+  { key: 'tail', label: '靓尾', suffix: '尾' }
+];
+const DIGIT_INDEX = { head: 0, hundred: 1, ten: 2, tail: 3 };
+
+function calculateHit(levels, drawDigit) {
+  if (!levels[0].includes(drawDigit)) return 0;
+  let lastLevel = 0;
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i].includes(drawDigit)) lastLevel = i;
+    else break;
+  }
+  return levels[lastLevel].length;
+}
+
+function renderCard(posConfig, records) {
+  const currentRecord = records[records.length - 1];
+  // 历史记录最多显示7条（旧→新取最后7条，排除当前期）
+  const historyRecords = records.slice(0, -1).slice(-7);
+
+  let html = `<div class="card-head"><span>[發]发财就手[發]${posConfig.label}</span><button class="copy-btn" onclick="copyCard('${posConfig.key}')">复制</button></div>`;
+  html += `<div class="card-body">`;
+
+  // History (old to new: 151→152→153)
+  for (const rec of historyRecords) {
+    if (!rec.winning) continue;
+    const dDigit = parseInt(rec.winning[DIGIT_INDEX[posConfig.key]]);
+    const grains = rec.hits ? rec.hits[posConfig.key] : calculateHit(rec.sequences[posConfig.key], dDigit);
+    html += `<div class="divider">------------------------</div>`;
+    if (grains > 0) {
+      html += `<div class="hist-line"><span class="period">${rec.period}期</span><span class="hit-tag">🧧${grains}粒</span></div>`;
+    } else {
+      html += `<div class="hist-line"><span class="period">${rec.period}期</span><span class="miss-tag">🥀无</span></div>`;
+    }
+    html += `<div class="draw-line">开：${rec.winning}</div>`;
+  }
+
+  html += `<div class="divider">------------------------</div>`;
+
+  // Current period (last record)
+  html += `<div class="current-label">${currentRecord.period}期：</div>`;
+
+  const levels = currentRecord.sequences[posConfig.key];
+  for (const level of levels) {
+    html += `<div class="level-row">${level.join('')}<span class="suffix">${posConfig.suffix}</span></div>`;
+  }
+
+  html += `<div class="cur-draw">开：${currentRecord.winning || ''}</div>`;
+  html += `</div>`;
+  return html;
+}
+
+function copyCard(posKey) {
+  const records = window.lotteryData.records;
+  const currentRecord = records[records.length - 1];
+  const posConfig = POS_CONFIG.find(p => p.key === posKey);
+  const historyRecords = records.slice(0, -1).slice(-7);
+
+  let text = `[發]发财就手[發]${posConfig.label}\n`;
+
+  for (const rec of historyRecords) {
+    if (!rec.winning) continue;
+    const dDigit = parseInt(rec.winning[DIGIT_INDEX[posKey]]);
+    const grains = rec.hits ? rec.hits[posKey] : calculateHit(rec.sequences[posKey], dDigit);
+    text += `------------------------\n`;
+    text += `${rec.period}期${grains > 0 ? '[红包]' + grains + '粒' : '[凋谢]无'}\n`;
+    text += `开：${rec.winning}\n`;
+  }
+
+  text += `------------------------\n`;
+  text += `${currentRecord.period}期：\n`;
+  const levels = currentRecord.sequences[posKey];
+  for (const level of levels) {
+    text += level.join('') + posConfig.suffix + '\n';
+  }
+  text += `开：${currentRecord.winning || ''}\n\n`;
+  text += `★发财就手 应有尽有★\n`;
+  text += `★ ★ ★ 感谢支持★ ★★`;
+
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector(`[onclick="copyCard('${posKey}')"]`);
+    const orig = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+async function init() {
+  try {
+    const res = await fetch('data/lottery_data.json?t=' + Date.now());
+    window.lotteryData = await res.json();
+  } catch (e) {
+    window.lotteryData = { records: [], lastUpdate: 0 };
+  }
+
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+
+  for (const posConfig of POS_CONFIG) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = renderCard(posConfig, window.lotteryData.records);
+    container.appendChild(card);
+  }
+}
+
+init();
+</script>
+</body>
+</html>

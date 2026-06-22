@@ -1,0 +1,23 @@
+name: 发财就手开奖填入
+on:
+  schedule:
+    - cron: '0 14 * * *'  # UTC 14:00 = 北京时间 22:00
+  workflow_dispatch:
+
+env:
+  TZ: Asia/Shanghai
+
+permissions:
+  contents: write
+
+jobs:
+  lottery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 抓取开奖结果并填入
+        run: python3 scripts/lottery.py
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
