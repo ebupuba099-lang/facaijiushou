@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """发财就手 - 抓取开奖结果并计算粒数"""
-import json, os, ssl, time, urllib.request, urllib.error
+import json, os, ssl, time, urllib.request, urllib.error, subprocess
 from datetime import datetime
 
 DATA_FILE = "data/lottery_data.json"
@@ -141,42 +141,33 @@ def fetch_draws():
     return []
 
 def commit_to_github(message):
-    import base64
+    """通过 git commit + push 提交，避免 API 直接写文件导致的冲突"""
     if not REPO or not GH_TOKEN:
         print("无GH_TOKEN，跳过提交")
         return
 
-    api = f"https://api.github.com/repos/{REPO}/contents/{DATA_FILE}"
-    headers = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    # 获取当前SHA
-    req = urllib.request.Request(api, headers=headers)
     try:
-        with urllib.request.urlopen(req) as resp:
-            sha = json.loads(resp.read())["sha"]
-    except:
-        sha = None
+        # 配置 git remote 使用 token
+        repo_url = f"https://x-access-token:{GH_TOKEN}@github.com/{REPO}.git"
+        subprocess.run(["git", "config", "user.name", "发财就手Bot"], check=True)
+        subprocess.run(["git", "config", "user.email", "bot@facaijiushou.local"], check=True)
 
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        content = f.read()
+        # 先 pull 确保同步
+        subprocess.run(["git", "pull", "--rebase", repo_url, "main"], check=True, capture_output=True)
 
-    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+        # add + commit + push
+        subprocess.run(["git", "add", DATA_FILE], check=True)
+        result = subprocess.run(["git", "commit", "-m", message], capture_output=True)
+        if b"nothing to commit" in result.stdout + result.stderr:
+            print("无变更，跳过提交")
+            return
 
-    body = json.dumps({
-        "message": message,
-        "content": encoded,
-        "sha": sha
-    })
-
-    req = urllib.request.Request(api, data=body.encode("utf-8"), headers=headers, method="PUT")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            print(f"已提交到GitHub: {message}")
-    except urllib.error.HTTPError as e:
-        print(f"提交失败: {e.code} {e.read().decode()}")
+        subprocess.run(["git", "push", repo_url, "main"], check=True)
+        print(f"已提交到GitHub: {message}")
+    except subprocess.CalledProcessError as e:
+        print(f"Git操作失败: {e}")
+        if e.stderr:
+            print(f"  stderr: {e.stderr.decode()[:500]}")
 
 def main():
     data = load_data()
