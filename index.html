@@ -81,7 +81,7 @@ function renderCard(posConfig, records) {
   for (const rec of historyRecords) {
     if (!rec.winning) continue;
     const dDigit = parseInt(rec.winning[DIGIT_INDEX[posConfig.key]]);
-    const grains = rec.hits ? rec.hits[posConfig.key] : calculateHit(rec.sequences[posConfig.key], dDigit);
+    const grains = (rec.hits && rec.hits[posConfig.key] != null) ? rec.hits[posConfig.key] : calculateHit(rec.sequences[posConfig.key], dDigit);
     html += `<div class="divider">------------------------</div>`;
     if (grains > 0) {
       html += `<div class="hist-line"><span class="period">${rec.period}期</span><span class="hit-tag">🧧${grains}粒</span></div>`;
@@ -117,7 +117,7 @@ function copyCard(posKey) {
   for (const rec of historyRecords) {
     if (!rec.winning) continue;
     const dDigit = parseInt(rec.winning[DIGIT_INDEX[posKey]]);
-    const grains = rec.hits ? rec.hits[posKey] : calculateHit(rec.sequences[posKey], dDigit);
+    const grains = (rec.hits && rec.hits[posKey] != null) ? rec.hits[posKey] : calculateHit(rec.sequences[posKey], dDigit);
     text += `------------------------\n`;
     text += `${rec.period}期${grains > 0 ? '[红包]' + grains + '粒' : '[凋谢]无'}\n`;
     text += `开：${rec.winning}\n`;

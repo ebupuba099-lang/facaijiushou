@@ -6,7 +6,7 @@ from datetime import datetime
 DATA_FILE = "data/lottery_data.json"
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 GH_TOKEN = os.environ.get("GH_TOKEN", "")
-MAX_RECORDS = 20
+MAX_RECORDS = 50
 
 def load_data():
     if os.path.exists(DATA_FILE):
