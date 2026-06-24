@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """发财就手 - 抓取开奖结果并计算粒数"""
-import json, os, ssl, time, urllib.request, urllib.error, subprocess
+import json, ssl, time, urllib.request, urllib.error
 from datetime import datetime
-
-DATA_FILE = "data/lottery_data.json"
-REPO = os.environ.get("GITHUB_REPOSITORY", "")
-GH_TOKEN = os.environ.get("GH_TOKEN", "")
+from common import DATA_FILE, load_data, save_data, commit_to_github
 
 API_SPORTTERY = "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=10&is11=0"
 API_HUINIAO = "https://api.huiniao.top/interface/home/lotteryHistory?type=plw&page=1&limit=10"
@@ -22,18 +19,6 @@ HEADERS = {
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"records": [], "lastUpdate": 0}
-
-def save_data(data):
-    data["lastUpdate"] = int(datetime.now().timestamp() * 1000)
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def calculate_hit(levels, draw_digit):
     """计算粒数：开奖数字最后出现在第几级，该级剩余个数=粒数"""
@@ -139,35 +124,6 @@ def fetch_draws():
             print(f"  彩经网API解析失败: {e}")
 
     return []
-
-def commit_to_github(message):
-    """通过 git commit + push 提交，避免 API 直接写文件导致的冲突"""
-    if not REPO or not GH_TOKEN:
-        print("无GH_TOKEN，跳过提交")
-        return
-
-    try:
-        # 配置 git remote 使用 token
-        repo_url = f"https://x-access-token:{GH_TOKEN}@github.com/{REPO}.git"
-        subprocess.run(["git", "config", "user.name", "发财就手Bot"], check=True)
-        subprocess.run(["git", "config", "user.email", "bot@facaijiushou.local"], check=True)
-
-        # 先 pull 确保同步
-        subprocess.run(["git", "pull", "--rebase", repo_url, "main"], check=True, capture_output=True)
-
-        # add + commit + push
-        subprocess.run(["git", "add", DATA_FILE], check=True)
-        result = subprocess.run(["git", "commit", "-m", message], capture_output=True)
-        if b"nothing to commit" in result.stdout + result.stderr:
-            print("无变更，跳过提交")
-            return
-
-        subprocess.run(["git", "push", repo_url, "main"], check=True)
-        print(f"已提交到GitHub: {message}")
-    except subprocess.CalledProcessError as e:
-        print(f"Git操作失败: {e}")
-        if e.stderr:
-            print(f"  stderr: {e.stderr.decode()[:500]}")
 
 def main():
     data = load_data()

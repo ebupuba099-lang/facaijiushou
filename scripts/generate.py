@@ -1,24 +1,10 @@
 #!/usr/bin/env python3
 """发财就手 - 每日生成新一期8级递减序列"""
-import json, os, random
+import random
 from datetime import datetime
+from common import DATA_FILE, load_data, save_data, commit_to_github
 
-DATA_FILE = "data/lottery_data.json"
-REPO = os.environ.get("GITHUB_REPOSITORY", "")
-GH_TOKEN = os.environ.get("GH_TOKEN", "")
 MAX_RECORDS = 50
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"records": [], "lastUpdate": 0}
-
-def save_data(data):
-    data["lastUpdate"] = int(datetime.now().timestamp() * 1000)
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def generate_levels():
     """从0-9中随机选8个，逐级随机去掉1个"""
@@ -85,35 +71,6 @@ def main():
 
     # 提交到GitHub
     commit_to_github(f"生成{next_period}期8级递减序列")
-
-def commit_to_github(message):
-    """通过 git commit + push 提交，避免 API 直接写文件导致的冲突"""
-    import subprocess
-    if not REPO or not GH_TOKEN:
-        print("无GH_TOKEN，跳过提交")
-        return
-
-    try:
-        repo_url = f"https://x-access-token:{GH_TOKEN}@github.com/{REPO}.git"
-        subprocess.run(["git", "config", "user.name", "发财就手Bot"], check=True)
-        subprocess.run(["git", "config", "user.email", "bot@facaijiushou.local"], check=True)
-
-        # 先 pull 确保同步
-        subprocess.run(["git", "pull", "--rebase", repo_url, "main"], check=True, capture_output=True)
-
-        # add + commit + push
-        subprocess.run(["git", "add", DATA_FILE], check=True)
-        result = subprocess.run(["git", "commit", "-m", message], capture_output=True)
-        if b"nothing to commit" in result.stdout + result.stderr:
-            print("无变更，跳过提交")
-            return
-
-        subprocess.run(["git", "push", repo_url, "main"], check=True)
-        print(f"已提交到GitHub: {message}")
-    except subprocess.CalledProcessError as e:
-        print(f"Git操作失败: {e}")
-        if e.stderr:
-            print(f"  stderr: {e.stderr.decode()[:500]}")
 
 if __name__ == "__main__":
     main()

@@ -4,9 +4,6 @@ on:
     - cron: '29 20 * * *'  # UTC 20:29 = 北京时间 04:29
   workflow_dispatch:
 
-env:
-  TZ: Asia/Shanghai
-
 permissions:
   contents: write
 
