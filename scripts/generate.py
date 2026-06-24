@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """发财就手 - 每日生成新一期8级递减序列"""
-import json, os, random, base64
+import json, os, random, base64, urllib.request
 from datetime import datetime
 
 DATA_FILE = "data/lottery_data.json"
