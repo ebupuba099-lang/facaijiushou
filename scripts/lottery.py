@@ -175,9 +175,17 @@ def main():
             return
     else:
         # 自动API模式
+        # 先检查是否有待填的期号
+        pending_periods = [r["period"] for r in data["records"] if not r.get("winning")]
+        if not pending_periods:
+            print("所有期都已填入开奖号码，无需抓取")
+            return
+
+        print(f"待填入期号: {', '.join(pending_periods)}")
+
         draws = fetch_draws()
         if not draws:
-            print("⚠️ 所有API均失败！")
+            print(f"⚠️ 所有API均失败！待填入: {', '.join(pending_periods)}")
             # 在本地环境（无GH_TOKEN）时，尝试交互模式
             if not os.environ.get("GH_TOKEN"):
                 print("检测到本地环境，切换到手动输入模式...")
@@ -185,25 +193,37 @@ def main():
                 if not updated_periods:
                     return
             else:
-                print("❌ GitHub Actions环境中API全部失败，退出")
+                # GitHub Actions 环境：API失败，打印明确警告让用户知道
+                print(f"❌ GitHub Actions中API全部失败！")
+                print(f"❌ 以下期号未填入开奖号码: {', '.join(pending_periods)}")
+                print(f"💡 请手动运行: python scripts/lottery.py --manual")
                 return
         else:
             # 构建期号→开奖映射
             draw_map = {d["period"]: d["number"] for d in draws}
-            print(f"获取到{len(draw_map)}期开奖数据")
+            print(f"获取到{len(draw_map)}期开奖数据: {sorted(draw_map.keys())}")
 
+            filled_count = 0
             for record in data["records"]:
                 period = record["period"]
                 if record.get("winning"):
                     continue  # 已填过，跳过
                 if period not in draw_map:
+                    print(f"  ⚠️ 期{period}不在API返回数据中（可能还未开奖）")
                     continue  # 没有这期的开奖数据
 
                 number = draw_map[period]
                 front_four = number[:4] if len(number) >= 4 else number
                 hits = fill_draw(record, front_four)
                 updated_periods.append(period)
-                print(f"已更新期{period}: 开奖{front_four}, 粒数{hits}")
+                filled_count += 1
+                print(f"  ✅ 期{period}: 开奖{front_four}, 粒数{hits}")
+
+            # 检查是否还有未填的
+            still_pending = [r["period"] for r in data["records"] if not r.get("winning")]
+            if still_pending:
+                print(f"⚠️ 仍有{len(still_pending)}期未填入: {', '.join(still_pending)}")
+                print(f"   API返回的期号: {sorted(draw_map.keys())}")
 
     if not updated_periods:
         print("无需更新（所有期已填或无匹配开奖数据）")
