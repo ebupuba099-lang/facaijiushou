@@ -1,7 +1,8 @@
 name: 发财就手开奖填入
 on:
   schedule:
-    - cron: '0 14 * * *'  # UTC 14:00 = 北京时间 22:00
+    - cron: '0 14 * * *'   # UTC 14:00 = 北京时间 22:00（开奖后立即抓取）
+    - cron: '0 22 * * *'   # UTC 22:00 = 北京时间 06:00（次日补抓，兜底）
   workflow_dispatch:
 
 permissions:

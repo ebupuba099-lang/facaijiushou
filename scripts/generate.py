@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """发财就手 - 每日生成新一期8级递减序列"""
-import random
+import os, random, subprocess
 from datetime import datetime
 from common import DATA_FILE, load_data, save_data, commit_to_github
 
@@ -70,7 +70,19 @@ def main():
     print(f"已生成期 {next_period}")
 
     # 提交到GitHub
-    commit_to_github(f"生成{next_period}期8级递减序列")
+    if os.environ.get("GH_TOKEN"):
+        commit_to_github(f"生成{next_period}期8级递减序列")
+    else:
+        # 本地环境：直接用 git 提交推送
+        try:
+            subprocess.run(["git", "add", DATA_FILE], check=True)
+            msg = f"生成{next_period}期8级递减序列"
+            result = subprocess.run(["git", "commit", "-m", msg], capture_output=True)
+            if b"nothing to commit" not in result.stdout + result.stderr:
+                subprocess.run(["git", "push"], check=True)
+                print(f"已提交并推送: {msg}")
+        except subprocess.CalledProcessError as e:
+            print(f"Git操作失败: {e}")
 
 if __name__ == "__main__":
     main()

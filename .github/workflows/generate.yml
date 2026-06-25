@@ -1,7 +1,8 @@
 name: 发财就手每日生成
 on:
   schedule:
-    - cron: '29 20 * * *'  # UTC 20:29 = 北京时间 04:29
+    - cron: '0 14 * * *'   # UTC 14:00 = 北京时间 22:00（开奖后立即生成）
+    - cron: '0 22 * * *'   # UTC 22:00 = 北京时间 06:00（次日早晨补跑，兜底）
   workflow_dispatch:
 
 permissions:

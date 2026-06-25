@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """发财就手 - 抓取开奖结果并计算粒数"""
-import json, ssl, time, urllib.request, urllib.error
+import json, os, ssl, sys, time, urllib.request, urllib.error
 from datetime import datetime
 from common import DATA_FILE, load_data, save_data, commit_to_github
 
@@ -125,46 +125,107 @@ def fetch_draws():
 
     return []
 
+def fill_draw(record, front_four):
+    """填入开奖号码并计算粒数"""
+    record["winning"] = front_four
+    digit_index = {"head": 0, "hundred": 1, "ten": 2, "tail": 3}
+    hits = {}
+    for pos, idx in digit_index.items():
+        draw_digit = int(front_four[idx])
+        hits[pos] = calculate_hit(record["sequences"][pos], draw_digit)
+    record["hits"] = hits
+    return hits
+
+def interactive_fill(data):
+    """手动输入模式：用户直接输入开奖号码"""
+    print("\n" + "=" * 50)
+    print("📝 手动输入开奖号码模式")
+    print("=" * 50)
+
+    # 找到需要填入的期号
+    pending = [r for r in data["records"] if not r.get("winning")]
+    if not pending:
+        print("✅ 所有期都已填入开奖号码！")
+        return []
+
+    print(f"待填入的期号: {', '.join(r['period'] for r in pending)}")
+
+    for record in pending:
+        period = record["period"]
+        while True:
+            number = input(f"\n请输入 {period} 期的开奖号码（前四位，如 1234）: ").strip()
+            if len(number) == 4 and number.isdigit():
+                break
+            print("❌ 请输入4位数字！")
+
+        hits = fill_draw(record, number)
+        print(f"  ✅ {period}期: 开奖{number}, 粒数{hits}")
+        updated_periods.append(period)
+
+    return updated_periods
+
 def main():
     data = load_data()
-
-    draws = fetch_draws()
-    if not draws:
-        print("所有API均失败，无法获取开奖结果")
-        return
-
-    # 构建期号→开奖映射
-    draw_map = {d["period"]: d["number"] for d in draws}
-    print(f"获取到{len(draw_map)}期开奖数据")
-
-    digit_index = {"head": 0, "hundred": 1, "ten": 2, "tail": 3}
     updated_periods = []
 
-    for record in data["records"]:
-        period = record["period"]
-        if record["winning"]:
-            continue  # 已填过，跳过
-        if period not in draw_map:
-            continue  # 没有这期的开奖数据
+    # 检查是否有命令行参数（手动输入模式）
+    if len(sys.argv) > 1 and sys.argv[1] == "--manual":
+        updated_periods = interactive_fill(data)
+        if not updated_periods:
+            return
+    else:
+        # 自动API模式
+        draws = fetch_draws()
+        if not draws:
+            print("⚠️ 所有API均失败！")
+            # 在本地环境（无GH_TOKEN）时，尝试交互模式
+            if not os.environ.get("GH_TOKEN"):
+                print("检测到本地环境，切换到手动输入模式...")
+                updated_periods = interactive_fill(data)
+                if not updated_periods:
+                    return
+            else:
+                print("❌ GitHub Actions环境中API全部失败，退出")
+                return
+        else:
+            # 构建期号→开奖映射
+            draw_map = {d["period"]: d["number"] for d in draws}
+            print(f"获取到{len(draw_map)}期开奖数据")
 
-        number = draw_map[period]
-        front_four = number[:4] if len(number) >= 4 else number
-        record["winning"] = front_four
+            for record in data["records"]:
+                period = record["period"]
+                if record.get("winning"):
+                    continue  # 已填过，跳过
+                if period not in draw_map:
+                    continue  # 没有这期的开奖数据
 
-        hits = {}
-        for pos, idx in digit_index.items():
-            draw_digit = int(front_four[idx])
-            hits[pos] = calculate_hit(record["sequences"][pos], draw_digit)
-        record["hits"] = hits
-        updated_periods.append(period)
-        print(f"已更新期{period}: 开奖{front_four}, 粒数{hits}")
+                number = draw_map[period]
+                front_four = number[:4] if len(number) >= 4 else number
+                hits = fill_draw(record, front_four)
+                updated_periods.append(period)
+                print(f"已更新期{period}: 开奖{front_four}, 粒数{hits}")
 
     if not updated_periods:
         print("无需更新（所有期已填或无匹配开奖数据）")
         return
 
     save_data(data)
-    commit_to_github(f"填入{','.join(updated_periods)}期开奖结果")
+
+    # 在本地环境时自动 git add/commit/push
+    if not os.environ.get("GH_TOKEN"):
+        import subprocess
+        try:
+            subprocess.run(["git", "add", DATA_FILE], check=True)
+            msg = f"填入{','.join(updated_periods)}期开奖结果"
+            result = subprocess.run(["git", "commit", "-m", msg], capture_output=True)
+            if b"nothing to commit" not in result.stdout + result.stderr:
+                subprocess.run(["git", "push"], check=True)
+                print(f"已提交并推送: {msg}")
+        except subprocess.CalledProcessError as e:
+            print(f"Git操作失败: {e}")
+    else:
+        commit_to_github(f"填入{','.join(updated_periods)}期开奖结果")
 
 if __name__ == "__main__":
+    updated_periods = []  # 模块级变量，interactive_fill 使用
     main()
