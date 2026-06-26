@@ -1,278 +1,420 @@
 #!/usr/bin/env python3
-"""发财就手 - 抓取开奖结果并计算粒数"""
-import json, os, ssl, sys, time, urllib.request, urllib.error
+# -*- coding: utf-8 -*-
+
+"""
+神仙连 - 每日开奖号码自动填入脚本 v3
+通过百度搜索爬取开奖号码（服务端渲染，绕过API拦截）
+备用：东方财富网、江苏体彩网、体彩官方API
+"""
+
+import json
+import os
+import base64
+import ssl
+import re
 from datetime import datetime
-from common import DATA_FILE, load_data, save_data, commit_to_github
+from urllib.request import Request, urlopen
+from urllib.parse import quote
 
-API_SPORTTERY = "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=10&is11=0"
-API_HUINIAO = "https://api.huiniao.top/interface/home/lotteryHistory?type=plw&page=1&limit=10"
-API_CJCP = "https://www.cjcp.com.cn/ajax/lottery/history?lotteryId=85&pageSize=10&pageNo=1"
-API_JCJ = "https://www.lottery.gov.cn/api/lottery_kj_detail_new.jspx?_ltype=4&_term="  # 体彩官网新版API
+GH_TOKEN = os.environ.get('GH_TOKEN', os.environ.get('GIST_TOKEN', ''))
+REPO = 'ebupuba099-lang/facaijiushou'
+DATA_FILE = 'data/lottery_data.json'
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Referer": "https://www.lottery.gov.cn/",
-}
+def log(msg):
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{now}] {msg}", flush=True)
 
-# 创建不验证SSL的context（GitHub Actions环境有时SSL证书有问题）
-SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False
-SSL_CTX.verify_mode = ssl.CERT_NONE
+def _make_request(url, timeout=15, parse_json=False, extra_headers=None):
+    """通用请求函数"""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Cache-Control': 'no-cache',
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    req = Request(url, headers=headers)
+    try:
+        resp = urlopen(req, timeout=timeout, context=ctx)
+        raw = resp.read().decode('utf-8', errors='replace')
+        if parse_json:
+            return json.loads(raw)
+        return raw
+    except Exception as e:
+        log(f"  请求失败 [{url[:60]}]: {e}")
+        return None
 
-def calculate_hit(levels, draw_digit):
-    """计算粒数：开奖数字最后出现在第几级，该级剩余个数=粒数"""
-    if draw_digit not in levels[0]:
-        return 0
-    last_level = 0
-    for i in range(len(levels)):
-        if draw_digit in levels[i]:
-            last_level = i
-        else:
-            break
-    return len(levels[last_level])
+# ============================================================
+#  数据源1：百度搜索（最可靠，服务端渲染HTML）
+# ============================================================
 
-def _request(url, timeout=15):
-    """带重试的HTTP请求"""
-    for attempt in range(3):
+def fetch_from_baidu():
+    """从百度搜索结果提取排列五开奖号码（服务端渲染HTML，不会被拦截）"""
+    log("尝试百度搜索...")
+    
+    url = 'https://www.baidu.com/s?wd=' + quote('排列五开奖号码')
+    html = _make_request(url, timeout=20, extra_headers={
+        'Referer': 'https://www.baidu.com/',
+    })
+    if not html or len(html) < 5000:
+        log("  百度返回内容过短，可能被拦截")
+        return None, None
+    
+    # 精准匹配：期号和号码在200字符内，期号格式如 "26166期"
+    # 百度卡片中最新一期排在最前面，所以取第一个匹配
+    pattern = r'(\d{5})期.{0,200}?(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)'
+    matches = re.findall(pattern, html, re.DOTALL)
+    
+    if matches:
+        # 第一个匹配是最新一期（百度卡片中最新期排最前）
+        m = matches[0]
+        period_str = m[0]
+        digits = ''.join(m[1:6])
+        if len(digits) == 5 and digits.isdigit():
+            our_period = int('20' + period_str) if len(period_str) <= 5 else int(period_str)
+            winning4 = digits[:4]
+            log(f"  百度解析成功: 期{our_period} 号码{digits} -> {winning4}")
+            return winning4, our_period
+    
+    # 备用正则：匹配 "第XXXXX期"
+    pattern2 = r'第\s*(\d{5})\s*期.{0,300}?(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)'
+    matches2 = re.findall(pattern2, html, re.DOTALL)
+    if matches2:
+        m = matches2[0]
+        period_str = m[0]
+        digits = ''.join(m[1:6])
+        if len(digits) == 5 and digits.isdigit():
+            our_period = int('20' + period_str) if len(period_str) <= 5 else int(period_str)
+            winning4 = digits[:4]
+            log(f"  百度备用解析成功: 期{our_period} 号码{digits} -> {winning4}")
+            return winning4, our_period
+    
+    log("  百度解析失败: 未匹配到开奖数据")
+    return None, None
+
+# ============================================================
+#  数据源2：江苏体彩网（服务端渲染，直接含开奖号码）
+# ============================================================
+
+def fetch_from_jslottery():
+    """从江苏体彩网获取最新排列五开奖公告（服务端渲染）"""
+    log("尝试江苏体彩网...")
+    
+    html = _make_request('https://api.js-lottery.com/', timeout=20)
+    if not html or len(html) < 3000:
+        return None, None
+    
+    # 找所有文章链接
+    links = re.findall(r'href="(/cms/post-\d+\.html)"', html)
+    
+    for link in links[:15]:  # 最多检查前15个
+        full_url = 'https://api.js-lottery.com' + link
+        detail = _make_request(full_url, timeout=15)
+        if not detail or '排列5' not in detail:
+            continue
+        
+        num_m = re.search(r'开奖号码[：:]\s*(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)', detail)
+        period_m = re.search(r'第\s*(\d{5})\s*期', detail)
+        
+        if num_m and period_m:
+            digits = ''.join(num_m.groups())
+            our_period = int('20' + period_m.group(1))
+            winning4 = digits[:4]
+            log(f"  江苏体彩网成功: 期{our_period} 号码{digits} -> {winning4}")
+            return winning4, our_period
+    
+    log("  江苏体彩网未找到排列五开奖公告")
+    return None, None
+
+# ============================================================
+#  数据源3：东方财富网（通过 web_fetch 验证过可用）
+# ============================================================
+
+def fetch_from_eastmoney():
+    """从东方财富网获取开奖号码（备用）"""
+    log("尝试东方财富网...")
+    
+    html = _make_request('https://caipiao.eastmoney.com/pub/Result/Category/pl5', timeout=20)
+    if not html or len(html) < 5000:
+        return None, None
+    
+    # 匹配期号和号码在同一上下文
+    pattern = r'(\d{5})期.{0,200}?(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)'
+    m = re.search(pattern, html, re.DOTALL)
+    if m:
+        period_str = m.group(1)
+        digits = ''.join(m.groups()[1:6])
+        if len(digits) == 5 and digits.isdigit():
+            our_period = int('20' + period_str)
+            winning4 = digits[:4]
+            log(f"  东方财富网成功: 期{our_period} 号码{digits} -> {winning4}")
+            return winning4, our_period
+    
+    log("  东方财富网解析失败")
+    return None, None
+
+# ============================================================
+#  数据源4：体彩官方API（备用）
+# ============================================================
+
+def fetch_from_sporttery():
+    """从体彩官方API获取"""
+    log("尝试体彩官方API...")
+    result = _make_request(
+        'https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=1&is11=0',
+        timeout=15, parse_json=True
+    )
+    if result:
         try:
-            req = urllib.request.Request(url, headers=HEADERS)
-            with urllib.request.urlopen(req, timeout=timeout, context=SSL_CTX) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+            if result.get('value') and result['value'].get('list'):
+                latest = result['value']['list'][0]
+                result_str = latest.get('lotteryDrawResult', '')
+                draw_num = latest.get('lotteryDrawNum', '')
+                if result_str:
+                    digits = result_str.replace(' ', '')
+                    if len(digits) >= 4:
+                        period = int('20' + draw_num) if draw_num else None
+                        log(f"  体彩官方API成功: 期{period} 号码{result_str}")
+                        return digits[:4], period
         except Exception as e:
-            print(f"  请求失败(第{attempt+1}次): {e}")
-            if attempt < 2:
-                time.sleep(2)
+            log(f"  体彩官方API解析失败: {e}")
+    return None, None
+
+# ============================================================
+#  主获取函数
+# ============================================================
+
+def fetch_winning_number():
+    """多源获取最新开奖号码，返回 (4位数字, 期号) 或 (None, None)"""
+    
+    # 数据源按优先级排序
+    sources = [
+        ('百度搜索', fetch_from_baidu),
+        ('江苏体彩网', fetch_from_jslottery),
+        ('东方财富网', fetch_from_eastmoney),
+        ('体彩官方API', fetch_from_sporttery),
+    ]
+    
+    for name, func in sources:
+        try:
+            winning4, period = func()
+            if winning4 and period:
+                log(f"{name}成功获取: 期号={period}, 号码={winning4}")
+                return winning4, period
+        except Exception as e:
+            log(f"{name}异常: {e}")
+    
+    log("所有数据源均未获取到开奖号码")
+    return None, None
+
+# ============================================================
+#  数据读写与更新
+# ============================================================
+
+def match_balanced_braces(text, start):
+    count = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            count += 1
+        elif text[i] == '}':
+            count -= 1
+            if count == 0:
+                return text[start:i+1]
     return None
 
-def fetch_draws():
-    """从多个API抓取最近多期开奖号码，返回list"""
-
-    # 1. 灰鸟API（优先，境外可访问）
-    print("尝试灰鸟API...")
-    result = _request(API_HUINIAO)
-    if result:
-        try:
-            data = result.get("data", {})
-            draws = []
-            # 取 data.list（多期）
-            items = data.get("list", [])
-            if not items:
-                # 备选: data.data.list
-                items = data.get("data", {}).get("list", [])
-            for item in items:
-                period_full = str(item.get("code", ""))
-                period = period_full[-3:] if len(period_full) >= 3 else period_full
-                number = (item.get("one", "") + item.get("two", "") +
-                          item.get("three", "") + item.get("four", "") +
-                          item.get("five", ""))
-                if period and number and len(number) >= 5:
-                    draws.append({"period": period, "number": number})
-            # 如果list为空，尝试取last单条
-            if not draws:
-                last = data.get("last", {})
-                if last:
-                    period_full = str(last.get("code", ""))
-                    period = period_full[-3:] if len(period_full) >= 3 else period_full
-                    number = (last.get("one", "") + last.get("two", "") +
-                              last.get("three", "") + last.get("four", "") +
-                              last.get("five", ""))
-                    if period and number and len(number) >= 5:
-                        draws.append({"period": period, "number": number})
-            if draws:
-                print(f"  灰鸟API成功: 获取{len(draws)}期")
-                return draws
-        except Exception as e:
-            print(f"  灰鸟API解析失败: {e}")
-
-    # 2. 体彩官方API（备选）
-    print("尝试体彩官方API...")
-    result = _request(API_SPORTTERY)
-    if result:
-        try:
-            draws = []
-            items = result.get("value", {}).get("list", [])
-            for item in items:
-                period_full = str(item.get("lotteryDrawNum", ""))
-                period = period_full[-3:] if len(period_full) >= 3 else period_full
-                number = item.get("lotteryDrawResult", "").replace(" ", "")
-                if period and number and len(number) >= 5:
-                    draws.append({"period": period, "number": number})
-            if draws:
-                print(f"  体彩API成功: 获取{len(draws)}期")
-                return draws
-        except Exception as e:
-            print(f"  体彩API解析失败: {e}")
-
-    # 3. 彩经网API
-    print("尝试彩经网API...")
-    result = _request(API_CJCP)
-    if result:
-        try:
-            draws = []
-            items = result.get("data", {}).get("list", [])
-            for item in items:
-                period_full = str(item.get("issue", ""))
-                period = period_full[-3:] if len(period_full) >= 3 else period_full
-                number = str(item.get("drawCode", "")).replace(",", "").replace(" ", "")
-                if period and number and len(number) >= 5:
-                    draws.append({"period": period, "number": number})
-            if draws:
-                print(f"  彩经网API成功: 获取{len(draws)}期")
-                return draws
-        except Exception as e:
-            print(f"  彩经网API解析失败: {e}")
-
-    # 4. 体彩官网新版API（逐个期号查询）
-    print("尝试体彩官网新版API...")
+def update_index_html(data):
     try:
-        # 用已知最近期号范围尝试
-        for test_period in range(26166, 26156, -1):
-            url = API_JCJ + str(test_period)
-            result = _request(url, timeout=10)
-            if result:
-                draws = []
-                # 新版API结构不同，需要解析
-                if isinstance(result, dict):
-                    number = result.get("lotteryDrawResult", "") or result.get("drawNumber", "")
-                    period = str(result.get("lotteryDrawNum", "") or result.get("termNum", ""))
-                    period = period[-3:] if len(period) >= 3 else period
-                    number = str(number).replace(" ", "")
-                    if period and number and len(number) >= 5:
-                        draws.append({"period": period, "number": number})
-                        print(f"  官网API成功: 获取{len(draws)}期")
-                        return draws
+        headers2 = {
+            'Authorization': f'token {GH_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        sha_req = Request(f'https://api.github.com/repos/{REPO}/contents/index.html', headers=headers2)
+        sha_resp = urlopen(sha_req, timeout=30)
+        sha_data = json.loads(sha_resp.read().decode('utf-8'))
+        html_sha = sha_data['sha']
+        html_content = base64.b64decode(sha_data['content']).decode('utf-8')
+        
+        s_obj = {
+            'period': data.get('period', 0),
+            'winning': data.get('winning', ''),
+            'sequences': data.get('sequences', {}),
+            'history': data.get('history', [])
+        }
+        s_json = json.dumps(s_obj, ensure_ascii=False, separators=(',', ':'))
+        target = '<script id="embedded-data" type="application/json">'
+        idx = html_content.find(target)
+        if idx < 0:
+            log("未找到 embedded-data script 标签")
+            return False
+        
+        brace_start = idx + len(target)
+        matched = match_balanced_braces(html_content, brace_start)
+        if not matched:
+            log("无法匹配 S 对象")
+            return False
+        
+        json_end = brace_start + len(matched)
+        new_html = html_content[:brace_start] + s_json + html_content[json_end:]
+        
+        if new_html == html_content:
+            return True
+        
+        encoded = base64.b64encode(new_html.encode('utf-8')).decode('utf-8')
+        body = json.dumps({
+            'message': 'auto: update embedded data in index.html',
+            'content': encoded,
+            'sha': html_sha
+        }).encode('utf-8')
+        put_req = Request(
+            f'https://api.github.com/repos/{REPO}/contents/index.html',
+            data=body, method='PUT', headers=headers2
+        )
+        resp2 = urlopen(put_req, timeout=30)
+        if resp2.status == 200:
+            log("index.html 已更新")
+            return True
+        log(f"index.html更新失败: HTTP {resp2.status}")
+        return False
     except Exception as e:
-        print(f"  官网API失败: {e}")
+        log(f"更新index.html异常: {e}")
+        return False
 
-    return []
+def load_data():
+    headers = {'Authorization': f'token {GH_TOKEN}', 'Accept': 'application/vnd.github.v3.raw'}
+    req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', headers=headers)
+    resp = urlopen(req, timeout=30)
+    return json.loads(resp.read().decode('utf-8'))
 
-def fill_draw(record, front_four):
-    """填入开奖号码并计算粒数"""
-    record["winning"] = front_four
-    digit_index = {"head": 0, "hundred": 1, "ten": 2, "tail": 3}
+def save_data(data):
+    headers = {
+        'Authorization': f'token {GH_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+    }
+    sha_req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', headers=headers)
+    sha_resp = urlopen(sha_req, timeout=30)
+    sha = json.loads(sha_resp.read().decode('utf-8'))['sha']
+    content = json.dumps(data, ensure_ascii=False)
+    b64 = base64.b64encode(content.encode('utf-8')).decode()
+    body = json.dumps({'message': 'auto: update lottery result', 'content': b64, 'sha': sha}).encode('utf-8')
+    put_req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', data=body, method='PUT', headers=headers)
+    resp = urlopen(put_req, timeout=30)
+    return resp.status == 200
+
+def calc_hits(sequences, winning):
     hits = {}
-    for pos, idx in digit_index.items():
-        draw_digit = int(front_four[idx])
-        hits[pos] = calculate_hit(record["sequences"][pos], draw_digit)
-    record["hits"] = hits
+    if not winning or len(winning) != 4:
+        return hits
+    positions = ['千', '百', '十', '个']
+    for i, pos in enumerate(positions):
+        seq = sequences.get(pos, '')
+        if not seq:
+            hits[pos] = 0
+            continue
+        nums = seq.split(' ')
+        target = winning[i]
+        hit_level = 0
+        for j in range(len(nums) - 1, -1, -1):
+            if target in nums[j]:
+                hit_level = len(nums[j])
+                break
+        hits[pos] = hit_level
     return hits
 
-def interactive_fill(data):
-    """手动输入模式：用户直接输入开奖号码"""
-    print("\n" + "=" * 50)
-    print("📝 手动输入开奖号码模式")
-    print("=" * 50)
-
-    # 找到需要填入的期号
-    pending = [r for r in data["records"] if not r.get("winning")]
-    if not pending:
-        print("✅ 所有期都已填入开奖号码！")
-        return []
-
-    print(f"待填入的期号: {', '.join(r['period'] for r in pending)}")
-
-    for record in pending:
-        period = record["period"]
-        while True:
-            number = input(f"\n请输入 {period} 期的开奖号码（前四位，如 1234）: ").strip()
-            if len(number) == 4 and number.isdigit():
-                break
-            print("❌ 请输入4位数字！")
-
-        hits = fill_draw(record, number)
-        print(f"  ✅ {period}期: 开奖{number}, 粒数{hits}")
-        updated_periods.append(period)
-
-    return updated_periods
-
 def main():
+    log("=" * 50)
+    log("福气就手开奖号码自动填入任务开始 v3 (百度搜索版)")
+    
+    winning4, api_period = fetch_winning_number()
+    if not winning4:
+        log("所有数据源均未获取到开奖号码，跳过")
+        log("可能原因: 所有源均不可用或网络问题")
+        return True
+    
     data = load_data()
-    updated_periods = []
-
-    # 检查是否有命令行参数（手动输入模式）
-    if len(sys.argv) > 1 and sys.argv[1] == "--manual":
-        updated_periods = interactive_fill(data)
-        if not updated_periods:
-            return
+    current_period = data.get('period', 0)
+    current_winning = data.get('winning', '')
+    
+    log(f"当前期数: {current_period}, 当前开奖号: {'(空)' if not current_winning else current_winning}")
+    log(f"爬取到期号: {api_period}, 开奖号: {winning4}")
+    
+    if current_winning:
+        log(f"当前期已有开奖号 {current_winning}，跳过")
+        return True
+    
+    if api_period == current_period:
+        target_period = current_period
     else:
-        # 自动API模式
-        # 先检查是否有待填的期号
-        pending_periods = [r["period"] for r in data["records"] if not r.get("winning")]
-        if not pending_periods:
-            print("所有期都已填入开奖号码，无需抓取")
-            return
-
-        print(f"待填入期号: {', '.join(pending_periods)}")
-
-        draws = fetch_draws()
-        if not draws:
-            print(f"⚠️ 所有API均失败！待填入: {', '.join(pending_periods)}")
-            # 在本地环境（无GH_TOKEN）时，尝试交互模式
-            if not os.environ.get("GH_TOKEN"):
-                print("检测到本地环境，切换到手动输入模式...")
-                updated_periods = interactive_fill(data)
-                if not updated_periods:
-                    return
-            else:
-                # GitHub Actions 环境：API失败，打印明确警告
-                print(f"❌ GitHub Actions中4个API全部失败！")
-                print(f"❌ 以下期号未填入开奖号码: {', '.join(pending_periods)}")
-                print(f"💡 可能原因: GitHub Actions IP被国内API安全策略拦截")
-                print(f"💡 请手动运行: python scripts/lottery.py --manual")
-                print(f"💡 或在本地环境运行: python scripts/lottery.py")
-                # 不return，而是尝试更新lastUpdate让generate.py知道我们还活着
-                # 但数据没变，不commit
-                return
+        target_period = api_period
+        history = data.get('history', [])
+        existing = [h for h in history if h.get('period') == target_period]
+        if existing and existing[0].get('winning'):
+            log(f"期{target_period}已有开奖号 {existing[0]['winning']}，跳过")
+            return True
+        log(f"开奖号属于期{target_period}，非当前期{current_period}，填入历史")
+    
+    if target_period == current_period:
+        data['winning'] = winning4
+        hits = calc_hits(data.get('sequences', {}), winning4)
+        data['hits'] = hits
+        log(f"填入当前期 {current_period} 开奖号 {winning4}, 命中: {hits}")
+    else:
+        hits = calc_hits({}, winning4)
+        history = data.get('history', [])
+        existing = [h for h in history if h.get('period') == target_period]
+        if existing:
+            existing[0]['winning'] = winning4
+            if not existing[0].get('hits') or existing[0]['hits'] == {}:
+                if existing[0].get('sequences'):
+                    existing[0]['hits'] = calc_hits(existing[0]['sequences'], winning4)
+                else:
+                    existing[0]['hits'] = hits
+            log(f"填入历史期 {target_period} 开奖号 {winning4}")
         else:
-            # 构建期号→开奖映射
-            draw_map = {d["period"]: d["number"] for d in draws}
-            print(f"获取到{len(draw_map)}期开奖数据: {sorted(draw_map.keys())}")
+            hist_entry = {
+                'period': target_period,
+                'winning': winning4,
+                'hits': hits
+            }
+            history.insert(0, hist_entry)
+            if len(history) > 7:
+                history = history[:7]
+            data['history'] = history
+            log(f"新建历史期 {target_period} 开奖号 {winning4}")
+    
+    if target_period == current_period and data.get('sequences') and data.get('winning'):
+        history = data.get('history', [])
+        existing = [h for h in history if h.get('period') == current_period]
+        if not existing:
+            hist_entry = {
+                'period': current_period,
+                'sequences': data.get('sequences', {}),
+                'winning': winning4,
+                'hits': data.get('hits', {})
+            }
+            history.insert(0, hist_entry)
+            if len(history) > 7:
+                history = history[:7]
+            data['history'] = history
+    
+    try:
+        success = save_data(data)
+        if success:
+            log(f"推送成功！期{current_period} 开奖{winning4} 已更新")
+            update_index_html(data)
+        else:
+            log("推送失败")
+    except Exception as e:
+        log(f"推送异常: {e}")
+    
+    log("任务完成")
+    return True
 
-            filled_count = 0
-            for record in data["records"]:
-                period = record["period"]
-                if record.get("winning"):
-                    continue  # 已填过，跳过
-                if period not in draw_map:
-                    print(f"  ⚠️ 期{period}不在API返回数据中（可能还未开奖）")
-                    continue  # 没有这期的开奖数据
-
-                number = draw_map[period]
-                front_four = number[:4] if len(number) >= 4 else number
-                hits = fill_draw(record, front_four)
-                updated_periods.append(period)
-                filled_count += 1
-                print(f"  ✅ 期{period}: 开奖{front_four}, 粒数{hits}")
-
-            # 检查是否还有未填的
-            still_pending = [r["period"] for r in data["records"] if not r.get("winning")]
-            if still_pending:
-                print(f"⚠️ 仍有{len(still_pending)}期未填入: {', '.join(still_pending)}")
-                print(f"   API返回的期号: {sorted(draw_map.keys())}")
-
-    if not updated_periods:
-        print("无需更新（所有期已填或无匹配开奖数据）")
-        return
-
-    save_data(data)
-
-    # 在本地环境时自动 git add/commit/push
-    if not os.environ.get("GH_TOKEN"):
-        import subprocess
-        try:
-            subprocess.run(["git", "add", DATA_FILE], check=True)
-            msg = f"填入{','.join(updated_periods)}期开奖结果"
-            result = subprocess.run(["git", "commit", "-m", msg], capture_output=True)
-            if b"nothing to commit" not in result.stdout + result.stderr:
-                subprocess.run(["git", "push"], check=True)
-                print(f"已提交并推送: {msg}")
-        except subprocess.CalledProcessError as e:
-            print(f"Git操作失败: {e}")
-    else:
-        commit_to_github(f"填入{','.join(updated_periods)}期开奖结果")
-
-if __name__ == "__main__":
-    updated_periods = []  # 模块级变量，interactive_fill 使用
-    main()
+if __name__ == '__main__':
+    import sys
+    success = main()
+    sys.exit(0 if success else 1)
