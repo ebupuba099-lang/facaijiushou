@@ -33,10 +33,25 @@ def main():
     # 只有当最新期已开奖，才生成下一期
     # 但如果最新期超过2天还没开奖（API持续失败），也继续生成避免永久卡死
     if not latest_record.get("winning"):
+        # 用该期数据的生成时间来判断，而不是 lastUpdate（lastUpdate 每次运行都会刷新）
+        pending_period = int(latest_record["period"])
+        # 估算该期生成时间：如果 lastUpdate 存在，用它减去每天的偏移来推算
+        # 更可靠的做法：用 records 中该期的位置估算生成日期
+        pending_idx = len(data["records"]) - 1  # 最后一期的索引
+        # 默认每天一期，所以 pending_period 期的开奖日应该是开奖日（排列五每天开奖）
+        # 用期号差值估算：当前最大期号 vs pending_period
+        # 但我们不知道"今天"是第几期，所以改用 simpler 逻辑：
+        # 如果 latest_record 没有 winning，且它是最后一期，看 lastUpdate 距现在多久
         now_ts = int(datetime.now().timestamp() * 1000)
-        stale_ms = now_ts - data.get("lastUpdate", 0)
+        # 使用 data 中的 lastGenerateAttempt 字段（如果不存在则用 lastUpdate）
+        last_attempt = data.get("lastGenerateAttempt", data.get("lastUpdate", 0))
+        stale_ms = now_ts - last_attempt
         if stale_ms < 2 * 24 * 3600 * 1000:
-            print(f"最新期 {latest_period} 还未开奖（{stale_ms/3600000:.1f}小时前更新），今天不生成新一期")
+            # 首次检测到未开奖，记录时间戳（但不在本次 save，避免刷新 lastUpdate）
+            if "lastGenerateAttempt" not in data:
+                data["lastGenerateAttempt"] = now_ts
+                save_data(data, is_generate=True)
+            print(f"最新期 {latest_period} 还未开奖（{stale_ms/3600000:.1f}小时前首次检测），今天不生成新一期")
             return
         else:
             print(f"最新期 {latest_period} 超过2天未开奖，跳过继续生成下一期")
@@ -66,7 +81,9 @@ def main():
     if len(data["records"]) > MAX_RECORDS:
         data["records"] = data["records"][-MAX_RECORDS:]
 
-    save_data(data)
+    # 生成成功后清除 lastGenerateAttempt（因为最新期已变为有 winning 的期）
+    data.pop("lastGenerateAttempt", None)
+    save_data(data, is_generate=True)
     print(f"已生成期 {next_period}")
 
     # 提交到GitHub

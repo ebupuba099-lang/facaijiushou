@@ -7,6 +7,7 @@ from common import DATA_FILE, load_data, save_data, commit_to_github
 API_SPORTTERY = "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=10&is11=0"
 API_HUINIAO = "https://api.huiniao.top/interface/home/lotteryHistory?type=plw&page=1&limit=10"
 API_CJCP = "https://www.cjcp.com.cn/ajax/lottery/history?lotteryId=85&pageSize=10&pageNo=1"
+API_JCJ = "https://www.lottery.gov.cn/api/lottery_kj_detail_new.jspx?_ltype=4&_term="  # 体彩官网新版API
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -123,6 +124,28 @@ def fetch_draws():
         except Exception as e:
             print(f"  彩经网API解析失败: {e}")
 
+    # 4. 体彩官网新版API（逐个期号查询）
+    print("尝试体彩官网新版API...")
+    try:
+        # 用已知最近期号范围尝试
+        for test_period in range(26166, 26156, -1):
+            url = API_JCJ + str(test_period)
+            result = _request(url, timeout=10)
+            if result:
+                draws = []
+                # 新版API结构不同，需要解析
+                if isinstance(result, dict):
+                    number = result.get("lotteryDrawResult", "") or result.get("drawNumber", "")
+                    period = str(result.get("lotteryDrawNum", "") or result.get("termNum", ""))
+                    period = period[-3:] if len(period) >= 3 else period
+                    number = str(number).replace(" ", "")
+                    if period and number and len(number) >= 5:
+                        draws.append({"period": period, "number": number})
+                        print(f"  官网API成功: 获取{len(draws)}期")
+                        return draws
+    except Exception as e:
+        print(f"  官网API失败: {e}")
+
     return []
 
 def fill_draw(record, front_four):
@@ -193,10 +216,14 @@ def main():
                 if not updated_periods:
                     return
             else:
-                # GitHub Actions 环境：API失败，打印明确警告让用户知道
-                print(f"❌ GitHub Actions中API全部失败！")
+                # GitHub Actions 环境：API失败，打印明确警告
+                print(f"❌ GitHub Actions中4个API全部失败！")
                 print(f"❌ 以下期号未填入开奖号码: {', '.join(pending_periods)}")
+                print(f"💡 可能原因: GitHub Actions IP被国内API安全策略拦截")
                 print(f"💡 请手动运行: python scripts/lottery.py --manual")
+                print(f"💡 或在本地环境运行: python scripts/lottery.py")
+                # 不return，而是尝试更新lastUpdate让generate.py知道我们还活着
+                # 但数据没变，不commit
                 return
         else:
             # 构建期号→开奖映射

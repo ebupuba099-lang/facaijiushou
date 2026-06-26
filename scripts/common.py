@@ -15,8 +15,11 @@ def load_data():
     return {"records": [], "lastUpdate": 0}
 
 
-def save_data(data):
+def save_data(data, is_generate=False):
     data["lastUpdate"] = int(datetime.now().timestamp() * 1000)
+    # 如果是生成操作，记录首次检测到未开奖的时间（不覆盖已有的）
+    if is_generate and "lastGenerateAttempt" not in data:
+        data["lastGenerateAttempt"] = data["lastUpdate"]
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

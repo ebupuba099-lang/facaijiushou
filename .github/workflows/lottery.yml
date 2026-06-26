@@ -3,6 +3,7 @@ on:
   schedule:
     - cron: '0 14 * * *'   # UTC 14:00 = 北京时间 22:00（开奖后抓取填入）
     - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00（午夜补抓兜底）
+    - cron: '30 2 * * *'   # UTC 02:30 = 北京时间 10:30（上午补抓兜底）
   workflow_dispatch:
 
 permissions:
