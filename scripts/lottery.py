@@ -19,7 +19,7 @@ from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 
 REPO = 'ebupuba099-lang/facaijiushou'
-DATA_FILE = 'data/sxl_data.json'
+DATA_FILE = 'data/lottery_data.json'
 TZ = timezone(timedelta(hours=8))
 
 ctx = ssl.create_default_context()
