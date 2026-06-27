@@ -1,9 +1,11 @@
-name: 发财就手开奖填入
+name: 神仙连开奖填入
+
 on:
   schedule:
-    - cron: '0 14 * * *'   # UTC 14:00 = 北京时间 22:00（开奖后抓取填入）
-    - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00（午夜补抓兜底）
-    - cron: '30 2 * * *'   # UTC 02:30 = 北京时间 10:30（上午补抓兜底）
+    - cron: '40 13 * * *'    # UTC 13:40 = 北京时间 21:40
+    - cron: '0 15 * * *'     # UTC 15:00 = 北京时间 23:00
+    - cron: '0 16 * * *'     # UTC 16:00 = 北京时间 00:00
+    - cron: '30 2 * * *'     # UTC 02:30 = 北京时间 10:30 (上午补抓)
   workflow_dispatch:
 
 permissions:
@@ -14,9 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: 抓取开奖结果并填入
-        run: python3 scripts/lottery.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/lottery.py
         env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          TZ: Asia/Shanghai
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
