@@ -13211,10 +13211,15 @@
           ]
         ]
       },
-      "winning": "",
-      "hits": {}
+      "winning": "4718",
+      "hits": {
+        "head": 0,
+        "hundred": 0,
+        "ten": 3,
+        "tail": 0
+      }
     }
   ],
-  "lastUpdate": 1785968944847,
-  "version": 1785968944
+  "lastUpdate": 1786023624607,
+  "version": 1786023624
 }
