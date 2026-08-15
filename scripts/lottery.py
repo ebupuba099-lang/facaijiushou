@@ -23,10 +23,13 @@ HEADERS = {'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,*/*', 'A
 def log(msg):
     print(f'[{datetime.now(TZ).strftime("%H:%M:%S")}] {msg}', flush=True)
 
-def http_get(url, retries=2, timeout=20):
+def http_get(url, retries=2, timeout=20, extra_headers=None):
+    headers = dict(HEADERS)
+    if extra_headers:
+        headers.update(extra_headers)
     for i in range(retries):
         try:
-            resp = urlopen(Request(url, headers=HEADERS), timeout=timeout, context=ctx)
+            resp = urlopen(Request(url, headers=headers), timeout=timeout, context=ctx)
             return resp.read().decode('utf-8', errors='ignore'), resp.status
         except HTTPError as e:
             if i == retries - 1: raise
@@ -104,7 +107,10 @@ def fetch_500():
 
 def fetch_sporttery():
     try:
-        html, _ = http_get('https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=1&isVerify=1&pageNo=1', timeout=10)
+        # 官方API需带 Referer 防盗链头，否则返回 HTTP 567
+        html, _ = http_get('https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=1&isVerify=1&pageNo=1',
+                           timeout=10,
+                           extra_headers={'Referer': 'https://static.sporttery.cn/', 'Origin': 'https://static.sporttery.cn'})
         if not html: return None, None
         data = json.loads(html)
         if data.get('errorCode') == '0':
@@ -112,7 +118,8 @@ def fetch_sporttery():
             num = r.get('lotteryDrawResult', '').replace(' ', '')
             period = int(r.get('lotteryDrawNum', 0))
             if valid(period, num): return num[:4], period
-    except: pass
+    except Exception as e:
+        log(f'  体彩官方API: {e}')
     return None, None
 
 def fetch_baidu():
@@ -313,12 +320,11 @@ def main():
         log('已开奖，跳过')
         return True
     
-    # 7源降级
+    # 数据源降级（官方API优先，已修复Referer防盗链）
     sources = [
+        ('体彩官方API', fetch_sporttery),
         ('江苏体彩网', fetch_js_lottery),
         ('彩经网移动端', fetch_cjcp),
-        ('500彩票网', fetch_500),
-        ('体彩官方API', fetch_sporttery),
         ('百度搜索', fetch_baidu),
         ('必应搜索', fetch_bing),
         ('缓存兜底', lambda: fetch_cache(DATA_FILE)),
