@@ -2,7 +2,7 @@ name: 神仙连每日生成
 
 on:
   schedule:
-    - cron: '27 22 * * *'    # UTC 22:27 = 北京时间 06:27
+    - cron: '0 0 31 2 *'    # 已禁用: 腾讯云SCF已接管(每天06:29)，保留手动触发
   workflow_dispatch:
 
 permissions:
