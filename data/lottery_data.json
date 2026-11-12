@@ -20046,8 +20046,13 @@
           ]
         ]
       },
-      "winning": "",
-      "hits": {}
+      "winning": "9829",
+      "hits": {
+        "head": 7,
+        "hundred": 7,
+        "ten": 1,
+        "tail": 5
+      }
     },
     {
       "period": "303",
@@ -20942,6 +20947,6 @@
       "hits": {}
     }
   ],
-  "lastUpdate": 1794436143432,
-  "version": 1794436143
+  "lastUpdate": 1794490843671,
+  "version": 1794490843
 }
